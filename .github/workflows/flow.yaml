@@ -22,12 +22,12 @@ jobs:
     - name: Azure Login
       uses: azure/login@v1
       with:
-        creds: : ${{ secrets.AZURE_CREDENTIALS }}
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
 
     - name: Login to ACR
       run: az acr login --name ${{ secrets.ACR_NAME }}
 
-    - name: Set image version
+    - name: Set images version
       id: vars
       run: echo "version=${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
