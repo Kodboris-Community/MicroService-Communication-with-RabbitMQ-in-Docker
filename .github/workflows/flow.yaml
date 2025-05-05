@@ -72,7 +72,7 @@ jobs:
       ACR_NAME: ${{ secrets.ACR_NAME }}
 
     steps:
-    - name: Download Registry Info
+    - name: Download Registry Infos
       uses: actions/download-artifact@v4
       with:
         name: acr-registry
