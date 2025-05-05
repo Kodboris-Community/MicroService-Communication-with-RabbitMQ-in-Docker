@@ -79,6 +79,10 @@ jobs:
         REGISTRY=$(cat acr_registry.txt | tr -d '\n')
         echo "REGISTRY=$REGISTRY" >> $GITHUB_ENV
 
+    - name: Debug Env Variables:
+      run: |
+        echo "AZURE_TENANT_ID: $AZURE_TENANT_ID"
+
     - name: SSH and Deploy to Azure VM
       uses: appleboy/ssh-action@v1.0.3
       with:
@@ -90,6 +94,12 @@ jobs:
         script: |
           set -e
           cd ~/app  # Update if your project is cloned elsewhere
+
+          echo "Debugging inside the VM..."
+          echo "AZURE_CLIENT_ID: $AZURE_CLIENT_ID"
+          echo "AZURE_CLIENT_SECRET: $AZURE_CLIENT_SECRET"
+          echo "AZURE_TENANT_ID: $AZURE_TENANT_ID"
+
 
           echo "✅ Updating image tags in docker-compose.yml..."
           yq -i ".services.producer.image = \"${REGISTRY}/producer:${GITHUB_RUN_NUMBER}\"" $COMPOSE_FILE
