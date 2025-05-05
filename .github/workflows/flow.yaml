@@ -75,13 +75,18 @@ jobs:
         path: .
 
     - name: Read Registry
+      id: read_registry
       run: |
         REGISTRY=$(cat acr_registry.txt | tr -d '\n')
         echo "REGISTRY=$REGISTRY" >> $GITHUB_ENV
+        echo "REGISTRY=$REGISTRY"
 
     - name: Debug Environmental Variables
       run: |
-        echo "AZURE_TENANT_ID: $AZURE_TENANT_ID"
+        echo "AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}"
+        echo "AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}"
+        echo "AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}"
+        echo "REGISTRY: $REGISTRY"
 
     - name: SSH and Deploy to Azure VM
       uses: appleboy/ssh-action@v1.0.3
@@ -99,7 +104,9 @@ jobs:
           echo "AZURE_CLIENT_ID: $AZURE_CLIENT_ID"
           echo "AZURE_CLIENT_SECRET: $AZURE_CLIENT_SECRET"
           echo "AZURE_TENANT_ID: $AZURE_TENANT_ID"
-
+          echo "REGISTRY: $REGISTRY"
+          echo "GITHUB_RUN_NUMBER: $GITHUB_RUN_NUMBER"
+          echo "COMPOSE_FILE: $COMPOSE_FILE"
 
           echo "✅ Updating image tags in docker-compose.yml..."
           yq -i ".services.producer.image = \"${REGISTRY}/producer:${GITHUB_RUN_NUMBER}\"" $COMPOSE_FILE
