@@ -1,5 +1,9 @@
 name: Build and Deploy to Azure VM via ACR
 
+permissions:
+  id-token: write
+  contents: read
+
 on:
   push:
     branches:
