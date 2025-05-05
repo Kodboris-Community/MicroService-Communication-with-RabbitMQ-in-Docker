@@ -1,0 +1,103 @@
+name: Build and Deploy to Azure VM via ACR
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build and Push to Azure ACR
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    - name: Login to ACR
+      run: |
+        az acr login --name ${{ secrets.ACR_NAME }}
+
+    - name: Set image version
+      id: vars
+      run: echo "version=${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+
+    - name: Build and push all services
+      run: |
+        REGISTRY=${{ secrets.ACR_NAME }}.azurecr.io
+        VERSION=${{ steps.vars.outputs.version }}
+
+        docker build -t $REGISTRY/producer:$VERSION ./Producer
+        docker push $REGISTRY/producer:$VERSION
+
+        docker build -t $REGISTRY/consumer_health_check:$VERSION ./Consumer_one
+        docker push $REGISTRY/consumer_health_check:$VERSION
+
+        docker build -t $REGISTRY/consumer_insert_record:$VERSION ./Consumer_two
+        docker push $REGISTRY/consumer_insert_record:$VERSION
+
+        docker build -t $REGISTRY/consumer_delete_record:$VERSION ./Consumer_three
+        docker push $REGISTRY/consumer_delete_record:$VERSION
+
+        docker build -t $REGISTRY/consumer_read_database:$VERSION ./Consumer_four
+        docker push $REGISTRY/consumer_read_database:$VERSION
+
+        echo "$REGISTRY" > acr_registry.txt
+
+    - name: Upload Registry Info
+      uses: actions/upload-artifact@v3
+      with:
+        name: acr-registry
+        path: acr_registry.txt
+
+  deploy:
+    name: Deploy to Azure VM
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      COMPOSE_FILE: compose.yml
+
+    steps:
+    - name: Download Registry Info
+      uses: actions/download-artifact@v3
+      with:
+        name: acr-registry
+        path: .
+
+    - name: Read Registry
+      run: echo "REGISTRY=$(cat acr_registry.txt)" >> $GITHUB_ENV
+
+    - name: SSH and Deploy to Azure VM
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.AZURE_VM_HOST }}
+        username: ${{ secrets.AZURE_VM_USERNAME }}
+        key: ${{ secrets.AZURE_VM_SSH_KEY }}
+        port: ${{ secrets.PORT }}
+        envs: GITHUB_RUN_NUMBER,REGISTRY,COMPOSE_FILE,AZURE_CLIENT_ID,AZURE_CLIENT_SECRET,AZURE_TENANT_ID,ACR_NAME
+        script: |
+          cd ~/app  # Update if your project is cloned elsewhere
+
+          echo "Updating image tags in docker-compose.yml..."
+
+          yq -i ".services.producer.image = \"$REGISTRY/producer:$GITHUB_RUN_NUMBER\"" $COMPOSE_FILE
+          yq -i ".services.consumer_health_check.image = \"$REGISTRY/consumer_health_check:$GITHUB_RUN_NUMBER\"" $COMPOSE_FILE
+          yq -i ".services.consumer_insert_record.image = \"$REGISTRY/consumer_insert_record:$GITHUB_RUN_NUMBER\"" $COMPOSE_FILE
+          yq -i ".services.consumer_delete_record.image = \"$REGISTRY/consumer_delete_record:$GITHUB_RUN_NUMBER\"" $COMPOSE_FILE
+          yq -i ".services.consumer_read_database.image = \"$REGISTRY/consumer_read_database:$GITHUB_RUN_NUMBER\"" $COMPOSE_FILE
+
+          echo "Logging into ACR and restarting containers..."
+
+          az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID
+          az acr login --name ${{ secrets.ACR_NAME }}
+          docker compose pull
+          docker compose up -d --force-recreate
+
+          echo "✅ Deployment Complete"
