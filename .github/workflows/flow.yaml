@@ -27,7 +27,7 @@ jobs:
     - name: Login to ACR
       run: az acr login --name ${{ secrets.ACR_NAME }}
 
-    - name: Set images version
+    - name: Set image version
       id: vars
       run: echo "version=${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
@@ -66,6 +66,10 @@ jobs:
     timeout-minutes: 15
     env:
       COMPOSE_FILE: compose.yml
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ACR_NAME: ${{ secrets.ACR_NAME }}
 
     steps:
     - name: Download Registry Info
@@ -75,18 +79,9 @@ jobs:
         path: .
 
     - name: Read Registry
-      id: read_registry
       run: |
         REGISTRY=$(cat acr_registry.txt | tr -d '\n')
         echo "REGISTRY=$REGISTRY" >> $GITHUB_ENV
-        echo "REGISTRY=$REGISTRY"
-
-    - name: Debug Environmental Variables
-      run: |
-        echo "AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}"
-        echo "AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}"
-        echo "AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}"
-        echo "REGISTRY: $REGISTRY"
 
     - name: SSH and Deploy to Azure VM
       uses: appleboy/ssh-action@v1.0.3
@@ -100,15 +95,7 @@ jobs:
           set -e
           cd ~/app  # Update if your project is cloned elsewhere
 
-          echo "Debugging inside the VM..."
-          echo "AZURE_CLIENT_ID: $AZURE_CLIENT_ID"
-          echo "AZURE_CLIENT_SECRET: $AZURE_CLIENT_SECRET"
-          echo "AZURE_TENANT_ID: $AZURE_TENANT_ID"
-          echo "REGISTRY: $REGISTRY"
-          echo "GITHUB_RUN_NUMBER: $GITHUB_RUN_NUMBER"
-          echo "COMPOSE_FILE: $COMPOSE_FILE"
-
-          echo "✅ Updating image tags in docker-compose.yml..."
+          echo "🔧 Updating image tags in docker-compose.yml..."
           yq -i ".services.producer.image = \"${REGISTRY}/producer:${GITHUB_RUN_NUMBER}\"" $COMPOSE_FILE
           yq -i ".services.consumer_health_check.image = \"${REGISTRY}/consumer_health_check:${GITHUB_RUN_NUMBER}\"" $COMPOSE_FILE
           yq -i ".services.consumer_insert_record.image = \"${REGISTRY}/consumer_insert_record:${GITHUB_RUN_NUMBER}\"" $COMPOSE_FILE
@@ -121,8 +108,8 @@ jobs:
           echo "🔄 Logging into ACR..."
           az acr login --name "$ACR_NAME"
 
-          echo "📦 Pulling new images and restarting containers..."
+          echo "📦 Pulling latest images and restarting services..."
           docker compose pull
           docker compose up -d --force-recreate
 
-          echo "🚀 ✅ Deployment Complete"
+          echo "✅ Deployment completed successfully"
