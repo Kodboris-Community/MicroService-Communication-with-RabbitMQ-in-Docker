@@ -1,115 +1,106 @@
+import os
+import json
 import logging
-import time
 from flask import Flask, request, render_template
 import pika
-import json
+from dotenv import load_dotenv
 
-app = Flask(
-    __name__,
-    template_folder='templates'
-)
+# Load env vars
+load_dotenv()
 
-# RabbitMQ setup
-credentials = pika.PlainCredentials(username='guest', password='guest')
-parameters = pika.ConnectionParameters(host='rabbitmq', port=5672, credentials=credentials)
-connection = pika.BlockingConnection(parameters)
-channel = connection.channel()
+app = Flask(__name__, template_folder='templates')
+logging.basicConfig(level=logging.INFO)
 
-# Declare exchange
-channel.exchange_declare(
-    exchange='microservices', 
-    exchange_type='direct',
-    durable=True
-)
+# Get RabbitMQ configuration from env
+RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'localhost')
+RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', 5672))
+RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'guest')
+RABBITMQ_PASS = os.getenv('RABBITMQ_PASS', 'guest')
 
-# Declare queues
-channel.queue_declare(queue='health_check', durable=True)
-channel.queue_declare(queue='insert_record', durable=True)
-channel.queue_declare(queue='delete_record', durable=True)
-channel.queue_declare(queue='read_database', durable=True)
+EXCHANGE_NAME = 'microservices'
 
-channel.queue_declare(queue='send_database', durable=True)
+def get_rabbitmq_channel():
+    try:
+        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+        parameters = pika.ConnectionParameters(
+            host=RABBITMQ_HOST,
+            port=RABBITMQ_PORT,
+            credentials=credentials
+        )
+        connection = pika.BlockingConnection(parameters)
+        channel = connection.channel()
 
-# Bind queues to exchange with routing keys
-# TODO: make the queue name and the routing key name different
-channel.queue_bind(exchange='microservices', queue='health_check', routing_key='health_check')
-channel.queue_bind(exchange='microservices', queue='insert_record', routing_key='insert_record')
-channel.queue_bind(exchange='microservices', queue='delete_record', routing_key='delete_record')
-channel.queue_bind(exchange='microservices', queue='read_database', routing_key='read_database')
+        # Declare exchange and queues if not already declared
+        channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type='direct', durable=True)
+        for queue in ['health_check', 'insert_record', 'delete_record', 'read_database', 'send_database']:
+            channel.queue_declare(queue=queue, durable=True)
+            channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue, routing_key=queue)
 
+        return channel, connection
+    except Exception as e:
+        logging.error(f"Failed to connect to RabbitMQ: {e}")
+        raise
 
 @app.route('/')
 def index():
     return render_template('index.html')
-    # return "<p>Hello, World!</p>"
 
-# Health check endpoint
 @app.route('/health_check', methods=['GET'])
 def health_check():
-    message = 'RabbitMQ connection established successfully'
-    # Publish message to health_check queue
-    channel.basic_publish(exchange='microservices', routing_key='health_check', body=message)
+    channel, conn = get_rabbitmq_channel()
+    channel.basic_publish(exchange=EXCHANGE_NAME, routing_key='health_check', body='RabbitMQ connection established')
+    conn.close()
     return 'Health Check message sent!'
 
-
-# Insert record endpoint
 @app.route('/insert_record', methods=['GET'])
 def insert_record():
-    # name = request.form.get('Name')
-    # srn = request.form.get('SRN')
-    # section = request.form.get('Section')
-    # message = json.dumps({'name': name, 'srn': srn, 'section': section})
-    # # Publish message to insert_record queue
-    # channel.basic_publish(exchange='microservices', routing_key='insert_record', body=message)
-    return render_template('insert.html', message='Record Inserted Successfully!')
+    return render_template('insert.html')
 
-# Insert record endpoint
 @app.route('/insert_record_actually', methods=['POST'])
 def insert_record_actually():
     name = request.form['name']
     srn = request.form['srn']
     section = request.form['section']
     message = json.dumps({'name': name, 'srn': srn, 'section': section})
-    logging.info(message)
-    # Publish message to insert_record queue
-    channel.basic_publish(exchange='microservices', routing_key='insert_record', body=message)
-
+    
+    channel, conn = get_rabbitmq_channel()
+    channel.basic_publish(exchange=EXCHANGE_NAME, routing_key='insert_record', body=message)
+    conn.close()
     return render_template('insert.html', message='Record Inserted Successfully!')
 
-# Delete record endpoint
 @app.route('/delete_record', methods=['GET'])
 def delete_record():
-    return render_template('delete.html', message='Record Deleted Successfully!')
+    return render_template('delete.html')
 
 @app.route('/delete_record_actually', methods=['POST'])
 def delete_record_actually():
     srn = request.form['srn']
-    message = srn
-    logging.info(message)
-    # Publish message to delete_record queue
-    channel.basic_publish(exchange='microservices', routing_key='delete_record', body=message)
+    
+    channel, conn = get_rabbitmq_channel()
+    channel.basic_publish(exchange=EXCHANGE_NAME, routing_key='delete_record', body=srn)
+    conn.close()
     return render_template('delete.html', message='Record Deleted Successfully!')
 
-# Read database endpoint
 @app.route('/read_database', methods=['GET'])
 def read_database():
-    # Publish message to read_database queue
-    channel.basic_publish(exchange='microservices', routing_key='read_database', body='Read database request')
-
+    channel, conn = get_rabbitmq_channel()
+    channel.basic_publish(exchange=EXCHANGE_NAME, routing_key='read_database', body='Read database request')
+    conn.close()
     return render_template('read.html', message='Read Database message sent!')
 
 @app.route('/read_database_actually', methods=['GET'])
 def read_database_actually():
-
-    method_frame, header_frame, body  = channel.basic_get(queue='send_database')
-    channel.basic_ack(delivery_tag=method_frame.delivery_tag)
+    channel, conn = get_rabbitmq_channel()
+    method_frame, header_frame, body = channel.basic_get(queue='send_database')
 
     if method_frame:
+        channel.basic_ack(delivery_tag=method_frame.delivery_tag)
         records = body.decode()
     else:
-        records = {}
+        records = '{}'
 
+    conn.close()
     return records
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=int(os.getenv('FLASK_RUN_PORT', 5000)))

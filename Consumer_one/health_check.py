@@ -1,35 +1,45 @@
-'''
-For the consumer_one (health_check):
-
-RabbitMQ Client to listen for incoming requests on the “health_check” queue and process it.
-
-This consumer must acknowledge that the health-check message has been listened to through the “health_check” queue. (Simple Ack)
-'''
-
+import os
 import pika
 import time
+import logging
+from dotenv import load_dotenv
 
-# RabbitMQ setup
-credentials = pika.PlainCredentials(username='guest', password='guest')
-parameters = pika.ConnectionParameters(host='rabbitmq', port=5672, credentials=credentials)
-connection = pika.BlockingConnection(parameters=parameters)
-channel = connection.channel()
+# Load environment variables
+load_dotenv()
 
-# Declare the queue
-channel.queue_declare(
-    queue='health_check',
-    durable=True
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Callback function
-def callback(ch, method, properties, body):
-    print(" [x] Received %r" % body)
-    time.sleep(body.count(b'.'))
-    print(" [x] Done")
-    ch.basic_ack(delivery_tag = method.delivery_tag)
+RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'localhost')
+RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', 5672))
+RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'guest')
+RABBITMQ_PASS = os.getenv('RABBITMQ_PASS', 'guest')
+QUEUE_NAME = os.getenv('QUEUE_NAME', 'health_check')
 
-# Consume the queue
-channel.basic_consume(queue='health_check', on_message_callback=callback)
+def main():
+    try:
+        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+        parameters = pika.ConnectionParameters(host=RABBITMQ_HOST, port=RABBITMQ_PORT, credentials=credentials)
+        connection = pika.BlockingConnection(parameters)
+        channel = connection.channel()
 
-print(' [*] Waiting for messages. To exit press CTRL+C')
-channel.start_consuming()
+        channel.queue_declare(queue=QUEUE_NAME, durable=True)
+
+        def callback(ch, method, properties, body):
+            logging.info(f"Received message: {body.decode()}")
+            time.sleep(1)
+            logging.info("Processing complete")
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+
+        channel.basic_qos(prefetch_count=1)
+        channel.basic_consume(queue=QUEUE_NAME, on_message_callback=callback)
+
+        logging.info(f"Waiting for messages on queue: {QUEUE_NAME}. To exit press CTRL+C")
+        channel.start_consuming()
+
+    except KeyboardInterrupt:
+        logging.info("Interrupted by user, shutting down.")
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    main()
