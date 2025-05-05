@@ -3,7 +3,7 @@ name: Build and Deploy to Azure VM via ACR
 on:
   push:
     branches:
-      - main
+      - rabbitmq/microservices_Jaiye
 
 jobs:
   build:
