@@ -79,7 +79,7 @@ jobs:
         REGISTRY=$(cat acr_registry.txt | tr -d '\n')
         echo "REGISTRY=$REGISTRY" >> $GITHUB_ENV
 
-    - name: Debug Env Variables:
+    - name: Debug Environmental Variables
       run: |
         echo "AZURE_TENANT_ID: $AZURE_TENANT_ID"
 
