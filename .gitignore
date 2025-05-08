@@ -1,9 +1,8 @@
-# Byte-compiled / optimized / DLL files
+
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Distribution / packaging
 build/
 develop-eggs/
 dist/
@@ -19,15 +18,12 @@ var/
 .installed.cfg
 *.egg
 
-# PyInstaller
 *.manifest
 *.spec
 
-# Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Virtual environments
 .venv/
 venv/
 ENV/
@@ -35,11 +31,9 @@ env/
 env.bak/
 venv.bak/
 
-# Editor and IDE settings
 .vscode/
 .idea/
 
-# Pytest and coverage
 .pytest_cache/
 .coverage
 .coverage.*
@@ -49,52 +43,41 @@ coverage.xml
 *.cover
 *.py,cover
 
-# Tox environments
 .tox/
 .nox/
 
-# Type checkers
 .mypy_cache/
 .dmypy.json
 dmypy.json
 .pyre/
 .pytype/
 
-# Jupyter Notebook
 .ipynb_checkpoints/
 
-# System files
 .DS_Store
 Thumbs.db
 
-# Logs and runtime
 **/logs/
 *.log
 *.pid
 *.sock
 
-# Docker-related
 .dockerignore
 docker-compose.override.yml
 docker-compose*.bak.yml
 
-# Database artifacts
 *.sqlite3
 *.db
 dump/
 *.bson
 *.json
 
-# Secrets and environment
 .env
 .env.*
 
-# Postman collections (optional)
 *.postman_collection.json
 
-# Compiled shared objects
 *.so
 
-# Swap files
 *.swp
 *.swo
