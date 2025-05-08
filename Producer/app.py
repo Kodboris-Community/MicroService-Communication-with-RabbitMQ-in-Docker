@@ -1,114 +1,131 @@
 import logging
 import time
+import json
 from flask import Flask, request, render_template
 import pika
-import json
+from pika.exceptions import AMQPConnectionError, StreamLostError
 
-app = Flask(
-    __name__,
-    template_folder='templates'
-)
+app = Flask(__name__, template_folder='templates')
 
-# RabbitMQ setup
-credentials = pika.PlainCredentials(username='guest', password='guest')
-parameters = pika.ConnectionParameters(host='rabbitmq', port=5672, credentials=credentials)
-connection = pika.BlockingConnection(parameters)
-channel = connection.channel()
+# Setup logging
+logging.basicConfig(level=logging.INFO)
 
-# Declare exchange
-channel.exchange_declare(
-    exchange='microservices', 
-    exchange_type='direct',
-    durable=True
-)
+# RabbitMQ connection parameters
+RABBITMQ_HOST = 'rabbitmq'
+RABBITMQ_PORT = 5672
+RABBITMQ_USER = 'guest'
+RABBITMQ_PASS = 'guest'
 
-# Declare queues
-channel.queue_declare(queue='health_check', durable=True)
-channel.queue_declare(queue='insert_record', durable=True)
-channel.queue_declare(queue='delete_record', durable=True)
-channel.queue_declare(queue='read_database', durable=True)
+def get_channel():
+    """Establish a new RabbitMQ channel with heartbeat and retry logic."""
+    credentials = pika.PlainCredentials(username=RABBITMQ_USER, password=RABBITMQ_PASS)
+    parameters = pika.ConnectionParameters(
+        host=RABBITMQ_HOST,
+        port=RABBITMQ_PORT,
+        credentials=credentials,
+        heartbeat=30,
+        blocked_connection_timeout=30
+    )
 
-channel.queue_declare(queue='send_database', durable=True)
+    try:
+        connection = pika.BlockingConnection(parameters)
+        channel = connection.channel()
 
-# Bind queues to exchange with routing keys
-# TODO: make the queue name and the routing key name different
-channel.queue_bind(exchange='microservices', queue='health_check', routing_key='health_check')
-channel.queue_bind(exchange='microservices', queue='insert_record', routing_key='insert_record')
-channel.queue_bind(exchange='microservices', queue='delete_record', routing_key='delete_record')
-channel.queue_bind(exchange='microservices', queue='read_database', routing_key='read_database')
+        # Ensure exchange and queues are declared each time (idempotent)
+        channel.exchange_declare(exchange='microservices', exchange_type='direct', durable=True)
 
+        for queue_name in ['health_check', 'insert_record', 'delete_record', 'read_database', 'send_database']:
+            channel.queue_declare(queue=queue_name, durable=True)
+            if queue_name != 'send_database':
+                channel.queue_bind(exchange='microservices', queue=queue_name, routing_key=queue_name)
+
+        return connection, channel
+
+    except AMQPConnectionError as e:
+        logging.error("Failed to connect to RabbitMQ: %s", e)
+        return None, None
 
 @app.route('/')
 def index():
     return render_template('index.html')
-    # return "<p>Hello, World!</p>"
 
-# Health check endpoint
 @app.route('/health_check', methods=['GET'])
 def health_check():
+    connection, channel = get_channel()
+    if not channel:
+        return "Failed to connect to RabbitMQ", 500
     message = 'RabbitMQ connection established successfully'
-    # Publish message to health_check queue
     channel.basic_publish(exchange='microservices', routing_key='health_check', body=message)
+    connection.close()
     return 'Health Check message sent!'
 
-
-# Insert record endpoint
 @app.route('/insert_record', methods=['GET'])
 def insert_record():
-    # name = request.form.get('Name')
-    # srn = request.form.get('SRN')
-    # section = request.form.get('Section')
-    # message = json.dumps({'name': name, 'srn': srn, 'section': section})
-    # # Publish message to insert_record queue
-    # channel.basic_publish(exchange='microservices', routing_key='insert_record', body=message)
-    return render_template('insert.html', message='Record Inserted Successfully!')
+    return render_template('insert.html', message='')
 
-# Insert record endpoint
 @app.route('/insert_record_actually', methods=['POST'])
 def insert_record_actually():
     name = request.form['name']
     srn = request.form['srn']
     section = request.form['section']
     message = json.dumps({'name': name, 'srn': srn, 'section': section})
-    logging.info(message)
-    # Publish message to insert_record queue
-    channel.basic_publish(exchange='microservices', routing_key='insert_record', body=message)
+    logging.info(f"Inserting record: {message}")
+
+    connection, channel = get_channel()
+    if not channel:
+        return "Failed to connect to RabbitMQ", 500
+
+    try:
+        channel.basic_publish(exchange='microservices', routing_key='insert_record', body=message)
+    except StreamLostError as e:
+        logging.error("RabbitMQ connection lost while publishing: %s", e)
+        return "Error sending message", 500
+    finally:
+        connection.close()
 
     return render_template('insert.html', message='Record Inserted Successfully!')
 
-# Delete record endpoint
 @app.route('/delete_record', methods=['GET'])
 def delete_record():
-    return render_template('delete.html', message='Record Deleted Successfully!')
+    return render_template('delete.html', message='')
 
 @app.route('/delete_record_actually', methods=['POST'])
 def delete_record_actually():
     srn = request.form['srn']
-    message = srn
-    logging.info(message)
-    # Publish message to delete_record queue
-    channel.basic_publish(exchange='microservices', routing_key='delete_record', body=message)
+    logging.info(f"Deleting record: {srn}")
+
+    connection, channel = get_channel()
+    if not channel:
+        return "Failed to connect to RabbitMQ", 500
+
+    channel.basic_publish(exchange='microservices', routing_key='delete_record', body=srn)
+    connection.close()
     return render_template('delete.html', message='Record Deleted Successfully!')
 
-# Read database endpoint
 @app.route('/read_database', methods=['GET'])
 def read_database():
-    # Publish message to read_database queue
-    channel.basic_publish(exchange='microservices', routing_key='read_database', body='Read database request')
+    connection, channel = get_channel()
+    if not channel:
+        return "Failed to connect to RabbitMQ", 500
 
+    channel.basic_publish(exchange='microservices', routing_key='read_database', body='Read database request')
+    connection.close()
     return render_template('read.html', message='Read Database message sent!')
 
 @app.route('/read_database_actually', methods=['GET'])
 def read_database_actually():
+    connection, channel = get_channel()
+    if not channel:
+        return "Failed to connect to RabbitMQ", 500
 
-    method_frame, header_frame, body  = channel.basic_get(queue='send_database')
-    channel.basic_ack(delivery_tag=method_frame.delivery_tag)
-
+    method_frame, header_frame, body = channel.basic_get(queue='send_database')
     if method_frame:
+        channel.basic_ack(delivery_tag=method_frame.delivery_tag)
         records = body.decode()
     else:
-        records = {}
+        records = "No records available"
 
+    connection.close()
     return records
 
 if __name__ == '__main__':

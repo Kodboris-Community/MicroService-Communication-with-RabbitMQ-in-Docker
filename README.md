@@ -128,7 +128,7 @@ Hint: The docker-compose file which spins up the producer and consumers ensures 
 - https://www.cloudamqp.com/blog/part4-rabbitmq-for-beginners-exchanges-routing-keys-bindings.html
 - https://www.meritdata-tech.com/resources/whitepaper/digital-engineering-solutions/microservices-architecture-docker-kubernetes/
 - https://www.freecodecamp.org/news/docker-development-workflow-a-guide-with-flask-and-postgres-db1a1843044a/
-- https://www.educative.io/blog/mongodb-with-docker
+- https://www.educaative.io/blog/mongodb-with-docker
 
 
 # MicroService-Communication-with-RabbitMQ.
