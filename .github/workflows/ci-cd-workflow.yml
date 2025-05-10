@@ -100,7 +100,6 @@ jobs:
           key: ${{ secrets.TEEWAI_KEY }}
           port: ${{ secrets.PORT }}
           envs: GITHUB_TRIGGERING_ACTOR,GITHUB_RUN_NUMBER,ECR_REGISTRY,ECR_REPOSITORY,DIRECTORY,COMPOSE
-          debug: true  # Added for debugging
           script: |
             echo "Deploying Microservices from $ECR_REGISTRY/$ECR_REPOSITORY"
             cd $DIRECTORY
