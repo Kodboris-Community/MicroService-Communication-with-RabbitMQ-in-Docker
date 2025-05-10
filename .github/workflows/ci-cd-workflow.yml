@@ -105,7 +105,7 @@ jobs:
             cd $DIRECTORY
 
             for service in producer consumer_health_check consumer_insert_record consumer_delete_record consumer_read_database; do
-              echo "Updating image for $service..."
+              yq -y -i "del(.services.${service}.build)" $COMPOSE
               yq -y -i ".services.${service}.image = \"${ECR_REGISTRY}/${ECR_REPOSITORY}:${service}\"" $COMPOSE
             done
 
