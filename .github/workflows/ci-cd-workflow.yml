@@ -1,93 +1,105 @@
-name: CI/CD for Microservice with RabbitMQ
+name: CI/CD Pipeline for Microservice Communication
 
 on:
   push:
     branches:
-      - main
+      - taiwo-microproject
   pull_request:
     branches:
-      - main
+      - taiwo-microproject
 
 jobs:
-  build-and-test:
+  build:
+    name: Build and Push Microservice Images
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Check out code
         uses: actions/checkout@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Cache Docker layers
-        uses: actions/cache@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
         with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-2
 
-      - name: Set up Docker Compose
-        run: docker-compose --version
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build and start services
-        run: docker-compose up -d --build
-
-      - name: Wait for services to be healthy
-        run: sleep 30  # replace with real health check if needed
-
-      - name: Run basic container status check
-        run: docker ps
-
-      - name: Run tests (placeholder)
+      - name: Build, tag, and push all images to ECR
+        id: build-and-push
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: microservice-communication
         run: |
-          echo "Add integration tests here"
-          # curl http://localhost:5000/health_check
+          echo "$ECR_REGISTRY/$ECR_REPOSITORY"
 
-      - name: Tear down
-        run: docker-compose down
+          docker compose build
 
-  push-to-registry:
-    if: github.ref == 'refs/heads/main'
-    needs: build-and-test
+          docker tag producer:latest $ECR_REGISTRY/$ECR_REPOSITORY:producer
+          docker tag consumer_health_check:latest $ECR_REGISTRY/$ECR_REPOSITORY:consumer_health_check
+          docker tag consumer_insert_record:latest $ECR_REGISTRY/$ECR_REPOSITORY:consumer_insert_record
+          docker tag consumer_delete_record:latest $ECR_REGISTRY/$ECR_REPOSITORY:consumer_delete_record
+          docker tag consumer_read_database:latest $ECR_REGISTRY/$ECR_REPOSITORY:consumer_read_database
+
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:producer
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:consumer_health_check
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:consumer_insert_record
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:consumer_delete_record
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:consumer_read_database
+
+          echo "$ECR_REGISTRY" > ecr_registry.txt
+
+      - name: Upload ECR Registry Info
+        uses: actions/upload-artifact@v2
+        with:
+          name: ecr-registry
+          path: ecr_registry.txt
+
+  deploy:
+    name: Deploy Microservices to Remote Server
     runs-on: ubuntu-latest
+    needs: build
+    env:
+      ECR_REPOSITORY: microservice-communication
+      DIRECTORY: directory-for-microservices-rabbitmq
+      COMPOSE: docker-compose.yml
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Log in to DockerHub
-        uses: docker/login-action@v3
+      - name: Download ECR Registry Info
+        uses: actions/download-artifact@v2
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          name: ecr-registry
+          path: .
 
-      - name: Build and push Docker images
+      - name: Read ECR Registry
         run: |
-          docker-compose build
-          docker tag producer yourdockerhub/producer:latest
-          docker push yourdockerhub/producer:latest
-          # Repeat for each image as needed
+          ECR_REGISTRY=$(cat ecr_registry.txt)
+          echo "ECR_REGISTRY=$ECR_REGISTRY" >> $GITHUB_ENV
 
-  deploy-to-remote:
-    if: github.ref == 'refs/heads/main'
-    needs: [build-and-test]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up SSH Agent
-        uses: webfactory/ssh-agent@v0.9.0
+      - name: SSH Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: ${{ secrets.TEEWAI_HOST }}
+          username: ${{ secrets.TEEWAI_USERNAME }}
+          key: ${{ secrets.TEEWAI_KEY }}
+          port: ${{ secrets.PORT }}
+          envs: GITHUB_TRIGGERING_ACTOR,GITHUB_RUN_NUMBER,ECR_REGISTRY,ECR_REPOSITORY,DIRECTORY,COMPOSE
+          script: |
+            echo "Deploying Microservices from $ECR_REGISTRY/$ECR_REPOSITORY"
+            cd $DIRECTORY
 
-      - name: Deploy via SSH
-        run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} << 'EOF'
-            cd /home/${{ secrets.REMOTE_USER }}/microservices-rabbitmq
-            git pull origin main
-            docker-compose down
-            docker-compose up -d --build
-          EOF
+            for service in producer consumer_health_check consumer_insert_record consumer_delete_record consumer_read_database; do
+              echo "Updating image for $service..."
+              yq -y -i ".services.${service}.image = \"${ECR_REGISTRY}/${ECR_REPOSITORY}:${service}\"" $COMPOSE
+            done
+
+            docker compose up --build --force-recreate -d
+
+            if [[ $? == 0 ]]; then
+              echo "Deployment Successful!"
+            else
+              echo "Deployment Failed!"
+              exit 1
+            fi
