@@ -33,15 +33,29 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: microservice-communication
         run: |
-          echo "$ECR_REGISTRY/$ECR_REPOSITORY"
+          echo "Building and tagging services..."
 
-          docker compose build
+          cd Producer
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:producer .
+          cd ..
 
-          docker tag producer:latest $ECR_REGISTRY/$ECR_REPOSITORY:producer
-          docker tag consumer_health_check:latest $ECR_REGISTRY/$ECR_REPOSITORY:consumer_health_check
-          docker tag consumer_insert_record:latest $ECR_REGISTRY/$ECR_REPOSITORY:consumer_insert_record
-          docker tag consumer_delete_record:latest $ECR_REGISTRY/$ECR_REPOSITORY:consumer_delete_record
-          docker tag consumer_read_database:latest $ECR_REGISTRY/$ECR_REPOSITORY:consumer_read_database
+          cd Consumer_one
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:consumer_health_check .
+          cd ..
+
+          cd Consumer_two
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:consumer_insert_record .
+          cd ..
+
+          cd Consumer_three
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:consumer_delete_record .
+          cd ..
+
+          cd Consumer_four
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:consumer_read_database .
+          cd ..
+
+          echo "Pushing images to ECR..."
 
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:producer
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:consumer_health_check
