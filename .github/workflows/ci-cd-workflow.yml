@@ -52,7 +52,7 @@ jobs:
           echo "$ECR_REGISTRY" > ecr_registry.txt
 
       - name: Upload ECR Registry Info
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ecr-registry
           path: ecr_registry.txt
@@ -68,7 +68,7 @@ jobs:
 
     steps:
       - name: Download ECR Registry Info
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: ecr-registry
           path: .
