@@ -104,9 +104,15 @@ jobs:
             echo "Deploying Microservices from $ECR_REGISTRY/$ECR_REPOSITORY"
             cd $DIRECTORY
 
+            # Ensure the docker-compose file exists
+            if [[ ! -f "$COMPOSE" ]]; then
+              echo "docker-compose.yml file not found at $COMPOSE"
+              exit 1
+            fi
+
             for service in producer consumer_health_check consumer_insert_record consumer_delete_record consumer_read_database; do
-              yq -y -i "del(.services.${service}.build)" $COMPOSE
-              yq -y -i ".services.${service}.image = \"${ECR_REGISTRY}/${ECR_REPOSITORY}:${service}\"" $COMPOSE
+              echo "Updating image for $service..."
+              yq e ".services.${service}.image = \"${ECR_REGISTRY}/${ECR_REPOSITORY}:${service}\"" -i $COMPOSE
             done
 
             docker compose up --build --force-recreate -d
@@ -117,3 +123,4 @@ jobs:
               echo "Deployment Failed!"
               exit 1
             fi
+
