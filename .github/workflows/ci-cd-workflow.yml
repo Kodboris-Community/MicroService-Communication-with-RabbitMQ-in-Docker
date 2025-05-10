@@ -77,7 +77,7 @@ jobs:
     needs: build
     env:
       ECR_REPOSITORY: microservice-communication
-      DIRECTORY: directory-for-microservices-rabbitmq
+      DIRECTORY: MicroService-Communication-with-RabbitMQ-in-Docker
       COMPOSE: docker-compose.yml
 
     steps:
